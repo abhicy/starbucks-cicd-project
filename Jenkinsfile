@@ -1,39 +1,69 @@
 pipeline {
     agent any
+
     tools {
-        jdk 'jdk17'
         nodejs 'node16'
     }
+
     stages {
-        stage ("Clean Workspace") {
+
+        stage('Git Checkout') {
             steps {
-                cleanWs()
+                git branch: 'main',
+                url: 'https://github.com/abhicy/starbucks-cicd-project.git'
             }
         }
-        stage ("Git Checkout") {
+
+        stage('Install Dependencies') {
             steps {
-                git branch: 'main', url: 'https://github.com/CloudDevOpsHub/Starbucks-Application.git'
+                sh 'npm install'
             }
         }
-        stage("Install NPM Dependencies") {
+
+        stage('Build Docker Image') {
             steps {
-                sh "npm install"
+                sh 'docker build -t starbucks-app .'
             }
         }
-        stage("Build Docker Image") {
+
+        stage('Push Docker Image') {
             steps {
-                sh "docker build -t starbucks ."
-            }
-        }
-        stage("Tag & Push to DockerHub") {
-            steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker') {
-                        sh "docker tag starbucks vikas4cloud/starbucks:latest"
-                        sh "docker push vikas4cloud/starbucks:latest"
-                    }
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    sh '''
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    docker tag starbucks-app abhi15121994/starbucks-app:latest
+                    docker push abhi15121994/starbucks-app:latest
+                    '''
                 }
             }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                sh '''
+                docker stop starbucks-app-container || true
+                docker rm starbucks-app-container || true
+
+                docker pull abhi15121994/starbucks-app:latest
+
+                docker run -d \
+                --name starbucks-app-container \
+                -p 3000:3000 \
+                abhi15121994/starbucks-app:latest
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'CI/CD Pipeline Executed Successfully!'
         }
     }
 }
